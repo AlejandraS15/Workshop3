@@ -8,6 +8,11 @@ import matplotlib
 import io
 import urllib, base64
 
+from openai import OpenAI
+import os
+from dotenv import load_dotenv
+import numpy as np
+
 def home(request):
     #return HttpResponse('<h1>Welcome to Home Page</h1>')
     #return render(request, 'home.html')
@@ -123,3 +128,37 @@ def generate_bar_chart(data, xlabel, ylabel):
     buffer.close()
     graphic = base64.b64encode(image_png).decode('utf-8')
     return graphic
+
+def recommendations_view(request):
+    load_dotenv('openAI.env')
+    client = OpenAI(api_key=os.environ.get('openai_apikey'))
+    recommendation = None
+
+    if request.method == "GET" and "prompt" in request.GET:
+        user_prompt = request.GET.get("prompt")
+
+        response = client.embeddings.create(
+            input=[user_prompt],
+            model="text-embedding-3-small"
+        )
+        prompt_embedding = np.array(response.data[0].embedding, dtype=np.float32)
+
+        best_score = -1
+        best_movie = None
+
+        for movie in Movie.objects.exclude(emb__isnull=True):
+            movie_emb = np.frombuffer(movie.emb, dtype=np.float32)
+            score = np.dot(prompt_embedding, movie_emb) / (
+                np.linalg.norm(prompt_embedding) * np.linalg.norm(movie_emb)
+            )
+
+            if score > best_score:
+                best_score = score
+                best_movie = movie
+
+        recommendation = best_movie
+
+    return render(request, "recommendations.html", {
+        "recommendation": recommendation,
+        "prompt": request.GET.get("prompt", "")
+    })
